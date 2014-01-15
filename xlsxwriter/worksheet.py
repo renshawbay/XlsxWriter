@@ -125,6 +125,7 @@ def convert_column_args(method):
 #
 ###############################################################################
 cell_string_tuple = namedtuple('String', 'string, format')
+cell_fstring_tuple = namedtuple('FormulaString', 'string, format')
 cell_number_tuple = namedtuple('Number', 'number, format')
 cell_blank_tuple = namedtuple('Blank', 'format')
 cell_boolean_tuple = namedtuple('Boolean', 'boolean, format')
@@ -467,6 +468,42 @@ class Worksheet(xmlwriter.XMLwriter):
 
         # Store the cell data in the worksheet data table.
         self.table[row][col] = cell_string_tuple(string_index, cell_format)
+
+        return str_error
+
+    @convert_cell_args
+    def write_formula_string(self, row, col, string, cell_format=None):
+        """
+        Write a formula string to a worksheet cell
+
+        Args:
+            row:    The cell row (zero indexed).
+            col:    The cell column (zero indexed).
+            string: Cell data. Str.
+            format: An optional cell Format object.
+
+        Returns:
+            0:  Success.
+            -1: Row or column is out of worksheet bounds.
+            -2: String truncated to 32k characters.
+
+        """
+        str_error = 0
+
+        if self._check_dimensions(row, col):
+            return -1
+
+        # Check that the string is < 32767 chars.
+        if len(string) > self.xls_strmax:
+            string = string[:self.xls_strmax]
+            str_error = -2
+
+        # Write previous row if in in-line string optimization mode.
+        if self.optimization and row > self.previous_row:
+            self._write_single_row(row)
+
+        # Store the cell data in the worksheet data table.
+        self.table[row][col] = cell_fstring_tuple(string, cell_format)
 
         return str_error
 
@@ -4758,6 +4795,13 @@ class Worksheet(xmlwriter.XMLwriter):
                         preserve = 1
 
                     self._xml_inline_string(string, preserve, attributes)
+
+        elif type(cell).__name__ == "FormulaString":
+            attributes.append(('t', 'str'))
+
+            self._xml_start_tag('c', attributes)
+            self._write_cell_value(cell.string)
+            self._xml_end_tag('c')
 
         elif type(cell).__name__ == 'Formula':
             # Write a formula. First check if the formula value is a string.
